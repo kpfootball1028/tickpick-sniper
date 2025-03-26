@@ -1,4 +1,4 @@
-# TickPick Ticket Sniping Bot - Safe Start with Telegram Alerts
+# TickPick Ticket Sniping Bot - Scrapes Specific Event (Updated Structure)
 
 import os
 import time
@@ -6,7 +6,7 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
 
-print("✅ TickPick scraper bot starting (safe start mode)...", flush=True)
+print("✅ TickPick scraper bot starting (specific event)...", flush=True)
 
 try:
     TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
@@ -17,7 +17,7 @@ try:
 
     print("✅ Telegram credentials loaded", flush=True)
 
-    TICKPICK_URL = "https://www.tickpick.com/ncaa-mens-basketball-east-regional-tickets/"
+    TICKPICK_URL = "https://www.tickpick.com/buy-ncaa-mens-basketball-tournament-east-regional-alabama-vs-byu-duke-vs-arizona-session-1-tickets-prudential-center-3-27-25-7pm/6371618/"
 
     SECTION_KEYWORDS = {
         'lower': ['8', '9', '10', '18', '19', '20', '21'],
@@ -50,7 +50,7 @@ try:
         return None
 
     def scrape_tickpick():
-        print(f"[{datetime.now()}] 🔍 Scraping TickPick for tickets...", flush=True)
+        print(f"[{datetime.now()}] 🔍 Scraping specific TickPick event...", flush=True)
         try:
             response = requests.get(TICKPICK_URL, headers=HEADERS)
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -58,19 +58,27 @@ try:
             print(f"🔥 Error loading TickPick page: {e}", flush=True)
             return
 
-        ticket_blocks = soup.select('div.ticket')
-        print(f"Found {len(ticket_blocks)} ticket blocks", flush=True)
+        ticket_rows = soup.select("div.listing-card-body")
+        print(f"Found {len(ticket_rows)} listings", flush=True)
 
         best_matches = {'lower': None, 'mid': None, 'upper': None}
 
-        for block in ticket_blocks:
+        for row in ticket_rows:
             try:
-                section = block.get('data-section', '').strip()
-                row = block.get('data-row', '').strip()
-                quantity = int(block.get('data-quantity', '1'))
-                price = float(block.get('data-price', '0'))
+                price_el = row.select_one("div.price span")
+                section_el = row.select_one("div.location span.section")
+                row_el = row.select_one("div.location span.row")
+                quantity_el = row.select_one("div.quantity span")
 
-                if not section or quantity < 2:
+                if not price_el or not section_el or not quantity_el:
+                    continue
+
+                price = float(price_el.text.replace("$", "").replace(",", "").strip())
+                section = section_el.text.replace("Sec ", "").strip()
+                row_text = row_el.text.replace("Row ", "").strip() if row_el else "?"
+                quantity = int(quantity_el.text.strip().split()[0])
+
+                if quantity < 2:
                     continue
 
                 tier = determine_tier(section)
@@ -81,17 +89,18 @@ try:
                 if not current_best or price < current_best['price']:
                     best_matches[tier] = {
                         'section': section,
-                        'row': row,
+                        'row': row_text,
                         'price': price,
                         'quantity': quantity
                     }
+
             except Exception as e:
-                print(f"⚠️ Ticket parse error: {e}", flush=True)
+                print(f"⚠️ Parse error: {e}", flush=True)
 
         for tier, match in best_matches.items():
             if match:
                 msg = (
-                    f"🎟️ *Cheapest {tier.capitalize()} Tier Ticket on TickPick*\n"
+                    f"🎟️ *Cheapest {tier.capitalize()} Tier Ticket*\n"
                     f"Section {match['section']} Row {match['row']}\n"
                     f"*Price:* ${match['price']} per ticket\n"
                     f"*Quantity:* {match['quantity']}\n"
